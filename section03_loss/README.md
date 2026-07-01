@@ -7,40 +7,215 @@
 - 理解 $\lambda_t$ 权重，掌握 Ho et al. 简化损失的直觉
 - 数值验证 $\tilde\mu_t$ 两种形式等价，理解完整训练流程
 
+## 本节目录
+
+- 零、先搞清楚 $p_\theta$ 和 $q$ 是什么
+- 一、ELBO 从哪里来
+  - 1.1 训练目标：$\log p_\theta(x_0)$
+  - 1.2 引入 $q$：把积分改写成期望
+  - 1.3 为什么用 Jensen 不等式
+  - 1.4 展开 ELBO：从连乘积到 KL 散度
+- 二、$L_{t-1}$：KL → 均值 MSE
+- 三、代入噪声形式
+- 四、$\sigma_t^2$ 的两种选取
+- 五、简化损失
+- 六、数值验证
+
+---
+
+## 零、先搞清楚 $p_\theta$ 和 $q$ 是什么
+
+本节推导会同时出现两个分布。**在谈 ELBO 之前，必须先弄清它们各自扮演什么角色**——否则 $p_\theta(x_{0:T})$、$\mu_\theta$ 等符号会像凭空冒出来一样。
+
+### 0.1 整体图景
+
+```
+正向 q（固定，不学习）：  x0 → x1 → x2 → ... → xT ≈ N(0,I)
+反向 pθ（待学习）：       xT → ... → x1 → x0
+```
+
+| 符号 | 是什么 | 学不学习 | 在哪定义的 |
+|------|--------|---------|-----------|
+| $q(x_{1:T}\|x_0)$ | 正向加噪过程 | ✗ 固定 | Section 01 |
+| $p_\theta(x_{0:T})$ | 反向生成过程（模型） | ✓ 学 $\theta$ | 本节 0.2 |
+| $q(x_{t-1}\|x_t, x_0)$ | 正向链的「真后验」 | ✗ 固定，可解析 | Section 02 |
+
+**训练的核心矛盾**：真实反向 $q(x_{t-1}|x_t)$ 算不出来（Section 02），但加了 $x_0$ 后的 $q(x_{t-1}|x_t,x_0)$ 有闭式。我们让模型 $p_\theta(x_{t-1}|x_t)$ 去逼近这个「真后验」——这就是后面 $L_{t-1}$ KL 项的含义。
+
+### 0.2 $p_\theta$ 是什么：反向马尔可夫链
+
+$p_\theta$ 是**生成模型**：假设数据 $x_0$ 是从纯噪声 $x_T$ 出发、逐步去噪得到的。整条链的联合概率分解为（**反向**马尔可夫结构）：
+
+$$p_\theta(x_{0:T}) = p(x_T)\,\prod_{t=1}^{T} p_\theta(x_{t-1}\,|\,x_t)$$
+
+各项含义：
+
+| 因子 | 分布 | 说明 |
+|------|------|------|
+| $p(x_T)$ | $\mathcal{N}(0,\,I)$ | 起点：纯高斯噪声，与 $\theta$ 无关 |
+| $p_\theta(x_{t-1}\|x_t)$ | $\mathcal{N}(\mu_\theta(x_t,t),\,\sigma_t^2 I)$ | 第 $t$ 步去噪：从 $x_t$ 预测 $x_{t-1}$ |
+
+**$\theta$ 在哪里？** 只在均值 $\mu_\theta(x_t, t)$ 里——它由神经网络输出。Ho et al. 把均值写成噪声预测形式（与 Section 02 的 $\tilde\mu_t$ 结构对齐）：
+
+$$\mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}}\!\left(x_t - \frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon_\theta(x_t, t)\right)$$
+
+等价地，网络 $\varepsilon_\theta(x_t, t)$ 预测「加噪时混入的噪声 $\varepsilon$」，再反推 $x_{t-1}$ 的均值。方差 $\sigma_t^2$ 是**人为设定的常数**（通常取 $\beta_t$ 或 $\tilde\beta_t$），不学习。
+
+**采样时**怎么用 $p_\theta$？从 $x_T \sim \mathcal{N}(0,I)$ 出发，逐步执行 $x_{t-1} \sim p_\theta(\cdot|x_t)$，最终得到 $x_0$。
+
+### 0.3 $q$ 是什么：正向马尔可夫链（复习）
+
+正向过程 $q$ 与 $p_\theta$ **方向相反**，且**不含** $\theta$：
+
+$$q(x_{1:T}|x_0) = \prod_{t=1}^{T} q(x_t\,|\,x_{t-1}), \qquad q(x_t|x_{t-1}) = \mathcal{N}(\sqrt{\alpha_t}\,x_{t-1},\,\beta_t I)$$
+
+闭合公式（Section 01）：$q(x_t|x_0) = \mathcal{N}(\sqrt{\bar\alpha_t}\,x_0,\,(1-\bar\alpha_t)I)$。
+
+训练时 $q$ 有两个用途：
+1. **构造训练样本**：给定真实图片 $x_0$，随机抽 $t$ 和 $\varepsilon$，一步得到 $x_t = \sqrt{\bar\alpha_t}x_0 + \sqrt{1-\bar\alpha_t}\varepsilon$
+2. **变分分布**：在 ELBO 推导里作为 $q(x_{1:T}|x_0)$，把难算的积分变成期望
+
+### 0.4 边缘分布 $p_\theta(x_0)$：我们真正要最大化的量
+
+联合分布 $p_\theta(x_{0:T})$ 描述整条链，但训练数据只有 $x_0$。我们关心的是**边缘分布**——把隐变量 $x_1,\ldots,x_T$ 积掉：
+
+$$p_\theta(x_0) = \int p_\theta(x_{0:T})\,dx_{1:T}$$
+
+对数似然 $\log p_\theta(x_0)$ 就是「模型认为这张图有多合理」。**最大化它 = 让生成模型拟合真实数据**。下一节从这里出发推导 ELBO。
+
 ---
 
 ## 一、ELBO 从哪里来
 
-我们想最大化数据的对数似然 $\log p_\theta(x_0)$，但它要对所有中间变量积分，算不出来。做法是**乘除一个我们能算的分布 $q(x_{1:T}|x_0)$，再用 Jensen 不等式压下界**。
+### 1.1 训练目标：$\log p_\theta(x_0)$ 为什么算不出来？
 
-**第一步：引入 $q$ 并用 Jensen 不等式**：
+上一节已定义 $p_\theta(x_{0:T})$。取对数并边缘化：
 
-$$\log p_\theta(x_0) = \log\int p_\theta(x_{0:T})\,dx_{1:T}
-= \log\mathbb{E}_q\!\left[\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right]
-\ \ge\ \mathbb{E}_q\!\left[\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right] =: \text{ELBO}$$
+$$\log p_\theta(x_0) = \log\int p_\theta(x_{0:T})\,dx_{1:T}$$
 
-**第二步：展开两个联合分布为马尔可夫连乘积**（$p$ 反向、$q$ 正向）：
+这里的 $dx_{1:T}$ 表示对 $x_1, x_2, \ldots, x_T$ **每一个**中间变量积分——不是只积 $x_1$，而是整条链上 $T$ 个隐变量全部积掉。
 
-$$p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^{T}p_\theta(x_{t-1}|x_t),\qquad
+为什么难算？
+- 积分维度 = $T \times d$（$T=1000$ 步，每步 $d$ 维像素），极高维
+- 被积函数 $p_\theta(x_{0:T})$ 里嵌着神经网络 $\varepsilon_\theta$，没有解析形式
+- 无法像 $q(x_t|x_0)$ 那样写出闭合公式
+
+→ 需要**变分推断**：引入可处理的 $q$，把目标改写成可优化下界 ELBO。
+
+### 1.2 引入 $q$：把积分改写成期望
+
+对 $p_\theta(x_0)$ 的积分，分子分母同乘 $q(x_{1:T}|x_0)$（Section 0.3 定义的正向链）：
+
+$$\log p_\theta(x_0)
+= \log\int q(x_{1:T}|x_0)\,\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\,dx_{1:T}
+= \log\mathbb{E}_{q(x_{1:T}|x_0)}\!\left[\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right]$$
+
+括号里的比值 $\dfrac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}$ 是**重要性权重**：按 $q$ 采一条轨迹 $(x_1,\ldots,x_T)$，看模型概率与正向概率差多少。期望 $\mathbb{E}_q[\cdot]$ 可用蒙特卡洛估计——**积分变成了可采样的期望**。
+
+但外面还套着 $\log$。$\log$ 是非线性的：
+
+$$\log\mathbb{E}[X] \;\neq\; \mathbb{E}[\log X]$$
+
+期望穿不进对数，还不能直接算。
+
+### 1.3 为什么用 Jensen 不等式？
+
+**Jensen 不等式**（$\log$ 是凹函数）：对任意随机变量 $X$，
+
+$$\log\mathbb{E}[X] \;\ge\; \mathbb{E}[\log X]$$
+
+直觉：凹函数图像在弦的下方——「先取期望再取 log」≥「先取 log 再取期望」。
+
+```
+        log
+         |     *  log(E[X])          ← 左边：先期望再 log（更大）
+         |    /|
+         |   / |
+         |  /  *  E[log X]           ← 右边：先 log 再期望（更小）
+         | /   |
+         +-----+--------→ X
+              E[X]
+```
+
+令 $X = \dfrac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}$，得到**可计算的下界**：
+
+$$\log p_\theta(x_0)
+\;\ge\;
+\mathbb{E}_q\!\left[\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right]
+=: \text{ELBO}$$
+
+| 量 | 能否直接算 | 说明 |
+|----|-----------|------|
+| $\log p_\theta(x_0)$ | ✗ | 对 $x_{1:T}$ 高维积分 |
+| $\log\mathbb{E}_q[\cdots]$ | ✗ | $\log$ 穿不进期望 |
+| **ELBO** | ✓ | $\log$ 在期望**里面**，可对单条轨迹逐项展开 |
+
+**训练策略**：最大化 ELBO（下界），真实对数似然也跟着升高。这是 VAE / DDPM 的标准做法。
+
+> **代价**：Jensen 是不等式，ELBO 与 $\log p_\theta(x_0)$ 之间有 gap。当 $q$ 接近真实后验时 gap 更小；DDPM 的高斯设计让这个 gap 在实践中可接受。
+
+### 1.4 展开 ELBO：从连乘积到 KL 散度
+
+ELBO 里是 $\mathbb{E}_q\!\left[\log\dfrac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right]$。下面分四步把它化成 KL 散度之和。
+
+#### 步骤 A：代入 $p_\theta$ 和 $q$ 的马尔可夫分解
+
+由 Section 0.2 和 0.3：
+
+$$p_\theta(x_{0:T}) = p(x_T)\prod_{t=1}^{T}p_\theta(x_{t-1}|x_t), \qquad
 q(x_{1:T}|x_0) = \prod_{t=1}^{T}q(x_t|x_{t-1})$$
 
-**第三步：把正向单步改写成后验**。对 $t\ge 2$ 用贝叶斯（马尔可夫）：
+取对数，比值的 log 变成求和：
 
-$$q(x_t|x_{t-1}) = q(x_t|x_{t-1},x_0) = \frac{q(x_{t-1}|x_t,x_0)\,q(x_t|x_0)}{q(x_{t-1}|x_0)}$$
+$$\log\frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}
+= \log p(x_T) + \sum_{t=1}^{T}\log p_\theta(x_{t-1}|x_t) - \sum_{t=1}^{T}\log q(x_t|x_{t-1})$$
 
-代回连乘积后，$\dfrac{q(x_t|x_0)}{q(x_{t-1}|x_0)}$ 连乘会**望远镜式抵消**，只剩首尾项，整理后得到三组：
+#### 步骤 B：把 $q(x_t|x_{t-1})$ 改写成后验（$t \ge 2$）
+
+对 $t \ge 2$，用贝叶斯公式（马尔可夫性 $q(x_t|x_{t-1},x_0)=q(x_t|x_{t-1})$）：
+
+$$q(x_t|x_{t-1}) = \frac{q(x_{t-1}|x_t,x_0)\,q(x_t|x_0)}{q(x_{t-1}|x_0)}$$
+
+取 log 后代入 $\sum_{t=1}^{T}\log q(x_t|x_{t-1})$。注意 $t=1$ 时 $q(x_1|x_0)$ 直接保留，$t \ge 2$ 才做上述替换：
+
+$$\sum_{t=1}^{T}\log q(x_t|x_{t-1})
+= \log q(x_1|x_0) + \sum_{t=2}^{T}\Big[\log q(x_{t-1}|x_t,x_0) + \log\frac{q(x_t|x_0)}{q(x_{t-1}|x_0)}\Big]$$
+
+#### 步骤 C：望远镜抵消
+
+看 $\sum_{t=2}^{T}\log\dfrac{q(x_t|x_0)}{q(x_{t-1}|x_0)}$ 这一项：
+
+$$\log\frac{q(x_2|x_0)}{q(x_1|x_0)} + \log\frac{q(x_3|x_0)}{q(x_2|x_0)} + \cdots + \log\frac{q(x_T|x_0)}{q(x_{T-1}|x_0)}
+= \log q(x_T|x_0) - \log q(x_1|x_0)$$
+
+中间项全部抵消，只剩首尾。代回步骤 B 后，$\log q(x_1|x_0)$ 也前后抵消，整理得：
+
+$$\sum_{t=1}^{T}\log q(x_t|x_{t-1})
+= \sum_{t=2}^{T}\log q(x_{t-1}|x_t,x_0) + \log q(x_T|x_0)$$
+
+#### 步骤 D：合并同期望项为 KL 散度
+
+把步骤 A 和步骤 C 的结果合并，再对 $q(x_{1:T}|x_0)$ 取期望。利用恒等式 $\mathbb{E}_q[\log p(a|b)] = -\mathrm{KL}(q(a|b)\|p(a|b)) + \text{const}$，同类项两两配对：
+
+| 配对 | 变成 |
+|------|------|
+| $\log p(x_T)$ vs $\log q(x_T\|x_0)$ | $-D_{\rm KL}(q(x_T\|x_0)\,\|\,p(x_T)) = -L_T$ |
+| $\log p_\theta(x_{t-1}\|x_t)$ vs $\log q(x_{t-1}\|x_t,x_0)$（$t=2..T$） | $-\sum_{t=2}^{T} D_{\rm KL}(q(x_{t-1}\|x_t,x_0)\,\|\,p_\theta(x_{t-1}\|x_t)) = -\sum L_{t-1}$ |
+| 剩余的 $\log p_\theta(x_0\|x_1)$ | $\mathbb{E}_q[\log p_\theta(x_0\|x_1)] = -L_0$ |
+
+最终：
 
 $$\log p_\theta(x_0) \ge \underbrace{-D_{\rm KL}(q(x_T|x_0)\|p(x_T))}_{-L_T}
-+ \sum_{t=2}^{T}\underbrace{-D_{\rm KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))}_{-L_{t-1}}
++ \sum_{t=2}^{T}\underbrace{-\,D_{\rm KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))}_{-L_{t-1}}
 + \underbrace{\mathbb{E}_q[\log p_\theta(x_0|x_1)]}_{-L_0}$$
-
-（望远镜抵消 + 合并同期望为 KL 的详细步骤可参考 Ho et al. 2020 附录 A。）
 
 | 项 | 含义 | 是否优化 |
 |----|------|---------|
-| $L_T$ | 最终噪声与先验的 KL | ✗（与 $\theta$ 无关） |
-| $L_{t-1}$ | 后验 $q$ 与模型 $p_\theta$ 的 KL | ✓（主要训练信号） |
-| $L_0$ | 重建项 | ✓（实践中用 MSE） |
+| $L_T$ | 最终噪声 $q(x_T\|x_0)$ 与先验 $p(x_T)=\mathcal{N}(0,I)$ 的 KL | ✗（与 $\theta$ 无关） |
+| $L_{t-1}$ | 真后验 $q$ 与模型去噪 $p_\theta$ 的 KL | ✓（**主要训练信号**） |
+| $L_0$ | 最后一步重建 $x_0$ | ✓（实践中也用 MSE） |
+
+**直觉回顾**：$L_{t-1}$ 在问——「给定 $x_t$ 和 $x_0$，正向过程认为 $x_{t-1}$ 应该是什么分布」vs「模型认为 $x_{t-1}$ 应该是什么分布」。让两者 KL 尽量小，模型就去噪学得越好。
 
 ```python
 T = 1000
@@ -55,7 +230,13 @@ tilde_beta = (1 - alpha_cumprod_prev) / (1 - alpha_cumprod) * betas  # β̃_t
 
 ## 二、$L_{t-1}$：KL → 均值 MSE
 
-两者都是高斯：后验 $q$ 的方差是固定的 $\tilde\beta_t$，模型 $p_\theta$ 的方差也设为同一个固定常数 $\sigma_t^2$（不学习）。**两个等方差高斯的 KL 有闭式公式**：
+上一节 $L_{t-1}$ 是两个分布的 KL。现在代入它们的具体形式（Section 02 的后验 + Section 0.2 的模型）。
+
+**$q$ 侧**（真后验，固定）：$q(x_{t-1}|x_t,x_0) = \mathcal{N}(\tilde\mu_t(x_t,x_0),\,\tilde\beta_t I)$
+
+**$p_\theta$ 侧**（模型，可学习）：$p_\theta(x_{t-1}|x_t) = \mathcal{N}(\mu_\theta(x_t,t),\,\sigma_t^2 I)$
+
+两者方差都是**固定常数**（不学习）。**两个等方差高斯的 KL 有闭式公式**：
 
 $$D_{\rm KL}\big(\mathcal{N}(\mu_q,\sigma^2 I)\,\|\,\mathcal{N}(\mu_p,\sigma^2 I)\big)
 = \frac{1}{2\sigma^2}\|\mu_q-\mu_p\|^2$$
@@ -75,7 +256,7 @@ $$L_{t-1} = D_{\rm KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))
 
 $$\tilde\mu_t = \frac{1}{\sqrt{\alpha_t}}\!\left(x_t - \frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon\right)$$
 
-模型对应设为：
+模型对应设为（Section 0.2）：
 
 $$\mu_\theta(x_t,t) = \frac{1}{\sqrt{\alpha_t}}\!\left(x_t - \frac{\beta_t}{\sqrt{1-\bar\alpha_t}}\,\varepsilon_\theta(x_t,t)\right)$$
 
