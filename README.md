@@ -20,7 +20,7 @@ conda activate ddpm_learn
 | `section02_forward_math/` | 正向过程完整数学推导、马尔可夫链 | 🔜 |
 | `section02_reverse_process/` | 反向过程后验推导（贝叶斯+配方法）、蒙特卡洛验证、反向采样 | ✅ 完成 |
 | `section03_loss/` | ELBO → 简化损失函数（预测噪声 ε） | ✅ 完成 |
-| `section04_unet/` | 时间嵌入 + U-Net 架构实现 | 🔜 |
+| `section04_unet/` | 时间嵌入 + U-Net 架构实现 | ✅ 完成 |
 | `section05_train_sample/` | 完整训练循环 + 采样（MNIST） | 🔜 |
 
 ## 快速入口
