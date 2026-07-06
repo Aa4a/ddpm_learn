@@ -5,7 +5,8 @@
 - 理解为什么去噪网络 $\varepsilon_\theta(x_t, t)$ 需要输入时间步 $t$
 - 掌握正弦时间嵌入（Sinusoidal Position Embedding）的数学原理与实现
 - 掌握如何在残差块（Residual Block）中注入时间信息
-- 理解自注意力机制（Self-Attention）在扩散模型中的作用
+- 理解自注意力（Self-Attention）的数学公式，以及与 Cross-Attention 的区别
+- 掌握 U-Net 三大核心操作：下采样、跳跃连接、上采样的原理与尺寸变化
 - 学习并组装一个完整的简易去噪 U-Net 网络，验证其输入输出维度一致性
 
 ## 本节目录
@@ -14,8 +15,9 @@
 - 一、正弦时间嵌入（Sinusoidal Position Embedding）
 - 二、时间注入残差块（Residual Block with Time Embedding）
 - 三、自注意力机制（Self-Attention）
-- 四、简易 U-Net 架构拼装
-- 五、维度验证与测试
+- 四、U-Net 核心操作：下采样、跳跃连接、上采样
+- 五、简易 U-Net 架构拼装与维度追踪
+- 六、维度验证与测试
 
 ---
 
@@ -133,13 +135,56 @@ class ResidualBlock(nn.Module):
 
 ## 三、自注意力机制（Self-Attention）
 
+> **注意**：这里的注意力是 **Self-Attention（自注意力）**——特征图上的每个位置与同一张图内的其他位置建立联系。它**不是** Stable Diffusion 里那种 **Cross-Attention（文本→图像）** 的条件注意力。原版 DDPM 是无条件生成模型，只有时间步 $t$ 作为条件，没有文本输入。
+
 ### 3.1 为什么需要注意力机制？
 
-卷积神经网络（CNN）的感受野是局部的。虽然通过堆叠卷积层可以扩大感受野，但在处理全局结构（如图像的对称性、长距离依赖）时，纯 CNN 依然存在局限。
+卷积神经网络（CNN）的感受野是局部的。$3 \times 3$ 卷积核在单层内只能看到 9 个邻域像素。虽然堆叠多层可以间接扩大感受野，但长距离依赖（如手写数字的横笔与竖笔）仍然难以高效建模。
 
-在 U-Net 的低分辨率层（如 $8 \times 8$ 或 $16 \times 16$）引入**自注意力机制**，可以让网络在极低的计算开销下建立全局像素之间的联系，从而显著提高生成图像的全局协调性。
+在 U-Net 的**低分辨率层**（如 $8 \times 8$）引入自注意力，可以让每个位置**直接**与所有 $N = H \times W$ 个位置交互，计算复杂度为 $O(N^2)$。由于 $N$ 很小（64），开销可控。
 
-### 3.2 简易单头自注意力实现
+| 机制 | 每个位置能"看到"的范围 | 计算代价 |
+|------|----------------------|----------|
+| $3 \times 3$ 卷积 | 局部 9 像素 | $O(HW)$ |
+| 堆叠 $L$ 层卷积 | 约 $(2L+1)^2$ 像素（间接） | $O(L \cdot HW)$ |
+| Self-Attention | **全部** $HW$ 个位置（直接） | $O((HW)^2)$，仅在低分辨率使用 |
+
+### 3.2 数学原理：Scaled Dot-Product Attention
+
+将特征图 $x \in \mathbb{R}^{B \times C \times H \times W}$ 展平为 $N = H \cdot W$ 个空间 token，每个 token 是 $C$ 维向量。
+
+**Step 1：线性投影得到 Q、K、V**
+
+$$Q = x W_Q, \quad K = x W_K, \quad V = x W_V$$
+
+其中 $W_Q, W_K, W_V \in \mathbb{R}^{C \times C}$。代码里用 $1 \times 1$ 卷积一次算出 $3C$ 个通道再拆分：
+
+$$[Q;\, K;\, V] = \text{Conv}_{1 \times 1}(x), \quad Q, K, V \in \mathbb{R}^{B \times C \times H \times W}$$
+
+**Step 2：计算注意力权重**
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{Q K^\top}{\sqrt{C}}\right) V$$
+
+- $Q K^\top$ 的形状为 $[B,\, N,\, N]$：第 $(i,j)$ 元素表示位置 $i$ 对位置 $j$ 的相关程度
+- 除以 $\sqrt{C}$（缩放因子）防止内积过大导致 softmax 梯度消失
+- softmax 按行归一化，使每个位置对所有位置的权重之和为 1
+
+**Step 3：残差连接**
+
+$$\text{output} = x + \text{Proj}(\text{Attention}(Q, K, V))$$
+
+残差保证：即使注意力层初始时学不好，原始特征 $x$ 仍可通过捷径传递。
+
+### 3.3 与 Cross-Attention 的区别（常见误解）
+
+| | Self-Attention（本节） | Cross-Attention（文生图） |
+|--|------------------------|---------------------------|
+| Q 来自 | 图像特征图 | 图像特征图 |
+| K, V 来自 | **同一张**图像特征图 | **文本** embedding |
+| 注意力矩阵 | $[N,\, N]$（图像内部） | $[N,\, L]$（$L$ = 文本 token 数） |
+| 作用 | 理解图像全局结构 | 让生成内容符合文字描述 |
+
+### 3.4 代码实现
 
 ```python
 class AttentionBlock(nn.Module):
@@ -160,40 +205,201 @@ class AttentionBlock(nn.Module):
         k = k.view(B, C, H * W)                  # [B, C, N]
         v = v.view(B, C, H * W).transpose(1, 2)  # [B, N, C]
 
-        # 计算注意力图
+        # Scaled Dot-Product Attention
         attn = torch.bmm(q, k) * (C ** -0.5)     # [B, N, N]
         attn = torch.softmax(attn, dim=-1)
 
-        # 加权求和并恢复形状
         out = torch.bmm(attn, v).transpose(1, 2).view(B, C, H, W)
         return x + self.proj(out)
 ```
 
 ---
 
-## 四、简易 U-Net 架构拼装
+## 四、U-Net 核心操作：下采样、跳跃连接、上采样
 
-### 4.1 整体架构图
+在拼装完整 U-Net 之前，必须先理解 U 形网络的三个核心操作。它们共同解决一个矛盾：
 
-我们拼装的 `SimpleUNet` 采用经典的沙漏型结构，并包含**跳跃连接（Skip Connections）**。跳跃连接能够将编码器保留的高频空间细节直接传递给解码器，避免在下采样过程中丢失关键信息。
+> **要看全局结构，就必须缩小分辨率；要输出逐像素噪声，就必须恢复原始分辨率。**
 
 ```
-输入 x0 ──> [ Init Conv ] ───────────────────────────────────────────> ( 拼接 ) ──> [ Up2 Res ] ──> [ Out Conv ] ──> 预测噪声
-                 │                                                       ▲
-             [ Down1 Res ] ─────────────────────────> ( 拼接 ) ──> [ Up1 Res ]   │
-                 │                                       ▲               │
-             [ Down1 Pool ]                          [ Up1 Unpool ]      │
-                 │                                       │               │
-             [ Down2 Res ] ──> [ Down2 Pool ] ──> [ Bottleneck ] ────────┘
+编码器：分辨率↓ 语义↑  （看大局）
+解码器：分辨率↑ 细节↑  （画回来）
+跳跃连接：把编码器的高分辨率细节直接传给解码器（防止变糊）
 ```
 
-### 4.2 核心前向传播逻辑
+---
 
-在 U-Net 的前向传播中，时间嵌入 `t_emb` 在每一个残差块中都会被传入并注入：
+### 4.1 下采样（Downsampling）
+
+#### 4.1.1 做什么？
+
+将特征图的空间尺寸减半：$H \times W \;\to\; \frac{H}{2} \times \frac{W}{2}$，同时通常增加通道数（提取更丰富的语义特征）。
+
+#### 4.1.2 数学原理
+
+本代码使用 **stride = 2 的卷积**（而非最大池化）：
+
+$$\text{Conv2d}(x)_{i,j,c'} = \sum_{c}\sum_{u=0}^{3}\sum_{v=0}^{3} W_{c',c,u,v} \cdot x_{2i+u,\; 2j+v,\; c} + b_{c'}$$
+
+- `kernel_size=4, stride=2, padding=1`：输出尺寸公式为
+
+$$\boxed{H_{\rm out} = \left\lfloor \frac{H_{\rm in} + 2p - k}{s} \right\rfloor + 1 = \left\lfloor \frac{32 + 2 - 4}{2} \right\rfloor + 1 = 16}$$
+
+- 每 2 个输入像素合并为 1 个输出像素 → 分辨率减半
+- 通道数可以从 16 变为 32（`down2_res` 中完成），下采样层本身保持通道不变
+
+#### 4.1.3 为什么要下采样？
+
+1. **扩大感受野**：在 $8 \times 8$ 的特征图上，一个 $3 \times 3$ 卷积"看到"的原图区域比在 $32 \times 32$ 上大得多
+2. **提取高层语义**：浅层捕捉边缘/纹理，深层捕捉形状/结构
+3. **降低计算量**：Self-Attention 的复杂度是 $O(N^2)$，$N=64$ 远比 $N=1024$ 可行
+
+#### 4.1.4 代码对应
+
+```python
+self.down1_pool = nn.Conv2d(16, 16, kernel_size=4, stride=2, padding=1)  # 32→16
+self.down2_pool = nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1)  # 16→8
+```
+
+---
+
+### 4.2 跳跃连接（Skip Connection）
+
+#### 4.2.1 做什么？
+
+将编码器某一层的输出**原样保存**，在解码器对应层通过**通道拼接（concatenate）** 融合：
+
+$$h_{\rm dec} = \text{Concat}\big(h_{\rm up},\; h_{\rm enc}\big), \quad \text{dim=1（通道维）}$$
+
+#### 4.2.2 数学原理
+
+设编码器保存的特征为 $s \in \mathbb{R}^{B \times C_s \times H \times W}$，解码器上采样后的特征为 $u \in \mathbb{R}^{B \times C_u \times H \times W}$，则：
+
+$$h = [u \;\|\; s] \in \mathbb{R}^{B \times (C_u + C_s) \times H \times W}$$
+
+本代码中的两次跳跃连接：
+
+| 跳跃连接 | 编码器保存 | 解码器上采样后 | 拼接结果 |
+|----------|-----------|---------------|----------|
+| Skip 2 | `x2_res` $[B,32,16,16]$ | `up1_unpool` $[B,32,16,16]$ | $[B,64,16,16]$ |
+| Skip 1 | `x1_res` $[B,16,32,32]$ | `up2_unpool` $[B,16,32,32]$ | $[B,32,32,32]$ |
+
+拼接后的 $h$ 送入 `ResidualBlock(in=64, out=16)` 或 `ResidualBlock(in=32, out=16)` 融合两套信息。
+
+#### 4.2.3 为什么是 Concat 而不是 Add？
+
+| 操作 | 公式 | 特点 |
+|------|------|------|
+| **Add（残差）** | $h = u + s$ | 要求 $C_u = C_s$，两种信息混合相加 |
+| **Concat（U-Net）** | $h = [u \,\|\, s]$ | 通道数翻倍，**两套信息完整保留**，由后续卷积学习如何融合 |
+
+U-Net 选择 Concat 是因为编码器（高分辨率细节）和解码器（低分辨率语义）携带**不同类型**的信息，直接相加会互相干扰。
+
+#### 4.2.4 为什么需要跳跃连接？
+
+下采样是有损的：$32 \times 32 \to 8 \times 8$ 丢失了大量空间细节。若解码器只从 $8 \times 8$ 上采样，输出会**模糊、边界不清**。
+
+跳跃连接建立了**信息高速公路**：
+
+```
+编码器 x1_res（32×32 的高频细节：边缘、笔画）
+         │
+         └──────→ 直接传给解码器，与语义特征融合
+```
+
+这正是 U-Net（Ronneberger et al., 2015）的核心创新，DDPM 沿用了这一设计。
+
+---
+
+### 4.3 上采样（Upsampling）
+
+#### 4.3.1 做什么？
+
+将特征图的空间尺寸加倍：$\frac{H}{2} \times \frac{W}{2} \;\to\; H \times W$，逐步恢复到与输入相同的分辨率。
+
+#### 4.3.2 数学原理
+
+本代码使用 **转置卷积（Transposed Convolution / ConvTranspose2d）**：
+
+$$\text{ConvTranspose2d}(x)_{i,j,c'} = \sum_{c}\sum_{u,v} W_{c',c,u,v} \cdot x_{\lfloor(i-u)/s\rfloor,\; \lfloor(j-v)/s\rfloor,\; c}$$
+
+- `kernel_size=4, stride=2, padding=1`：输出尺寸公式为
+
+$$\boxed{H_{\rm out} = (H_{\rm in} - 1) \times s - 2p + k = (8 - 1) \times 2 - 2 + 4 = 16}$$
+
+- 可理解为卷积的"逆操作"：在输入像素之间**插入零**再卷积，实现空间放大
+- 另一种常见做法是 `nn.Upsample(scale_factor=2)` + 普通卷积，效果类似
+
+#### 4.3.3 为什么需要上采样？
+
+去噪网络 $\varepsilon_\theta(x_t, t)$ 的输出必须与输入**逐像素对齐**：
+
+$$\varepsilon_\theta(x_t, t) \in \mathbb{R}^{B \times C \times H \times W}, \quad \text{与 } x_t \text{ 同形状}$$
+
+Bottleneck 处特征图只有 $8 \times 8$，必须通过上采样逐步恢复到 $32 \times 32$（或 $28 \times 28$ 等原始尺寸）。
+
+#### 4.3.4 代码对应
+
+```python
+self.up1_unpool = nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1)  # 8→16
+self.up2_unpool = nn.ConvTranspose2d(16, 16, kernel_size=4, stride=2, padding=1)  # 16→32
+```
+
+---
+
+### 4.4 三者协作：编码器-解码器的信息流
+
+以输入 $x_t \in \mathbb{R}^{B \times 3 \times 32 \times 32}$ 为例，完整的信息流如下：
+
+```
+阶段          操作              空间尺寸    通道数    信息类型
+─────────────────────────────────────────────────────────────
+编码器        init_conv         32×32       16       原始特征
+              down1_res         32×32       16       浅层细节 → 存为 x1_res ★
+              down1_pool        16×16       16       第一次下采样
+              down2_res         16×16       32       中层特征 → 存为 x2_res ★
+              down2_pool         8×8        32       第二次下采样
+Bottleneck    mid_res + attn     8×8        32       全局语义理解
+解码器        up1_unpool        16×16       32       第一次上采样
+              cat(x2_res)       16×16       64       融合中层细节 ★
+              up1_res           16×16       16       特征精炼
+              up2_unpool        32×32       16       第二次上采样
+              cat(x1_res)       32×32       32       融合浅层细节 ★
+              up2_res           32×32       16       特征精炼
+输出          out_conv          32×32        3       预测噪声 ε_θ
+```
+
+★ 标记的是跳跃连接传递的特征。
+
+---
+
+## 五、简易 U-Net 架构拼装与维度追踪
+
+### 5.1 整体架构图
+
+`SimpleUNet` 采用经典的**沙漏型（Hourglass）**结构：左侧编码器下采样，右侧解码器上采样，横向跳跃连接传递细节。
+
+```
+输入 x_t [B,3,32,32] + 时间步 t [B]
+         │
+         ├──→ time_embed(t) ──→ t_emb [B,128] ──→ 传入每个 ResidualBlock
+         │
+         ▼
+    [ Init Conv ] ──────────────────────────────────────────────→ (cat) ──→ [ Up2 Res ] ──→ [ Out ] ──→ ε_θ
+         │                                                            ▲
+     [ Down1 Res ] = x1_res ──────────────────────→ (cat) ──→ [ Up1 Res ] │
+         │                                            ▲                   │
+     [ Down1 Pool ]                              [ Up1 Unpool ]           │
+         │                                            │                   │
+     [ Down2 Res ] = x2_res ──→ [ Down2 Pool ] ──→ [ Bottleneck ] ───────┘
+                                                    (Res+Attn+Res)
+```
+
+### 5.2 核心前向传播逻辑
 
 ```python
 def forward(self, x, t):
-    # 1. 计算时间嵌入
+    # 1. 计算时间嵌入（只算一次，所有残差块复用）
     t_emb = self.time_embed(t)
     
     # 2. 编码器 (Downsampling)
@@ -207,9 +413,9 @@ def forward(self, x, t):
     # 3. 中间层 (Bottleneck)
     h = self.mid_res1(x2_pool, t_emb)
     h = self.mid_attn(h)
-    h = self.mid_res2(h)
+    h = self.mid_res2(h, t_emb)
     
-    # 4. 解码器 (Upsampling)
+    # 4. 解码器 (Upsampling + Skip Connections)
     h = self.up1_unpool(h)
     h = torch.cat((h, x2_res), dim=1)           # 拼接跳跃连接 2
     h = self.up1_res(h, t_emb)
@@ -222,9 +428,20 @@ def forward(self, x, t):
     return self.out_conv(h)
 ```
 
+### 5.3 设计要点总结
+
+| 组件 | 在 SimpleUNet 中出现的位置 | 作用 |
+|------|--------------------------|------|
+| 时间嵌入 | 网络入口，传入每个 ResidualBlock | 告诉网络当前去噪阶段 $t$ |
+| 下采样 ×2 | 编码器 | 看全局、提语义、省算力 |
+| Self-Attention ×1 | Bottleneck（$8 \times 8$） | 建立长距离像素依赖 |
+| 跳跃连接 ×2 | 编码器→解码器 | 保留高分辨率空间细节 |
+| 上采样 ×2 | 解码器 | 恢复与输入相同的分辨率 |
+| 输出卷积 | 最后一层 $1 \times 1$ Conv | 映射回图像通道数（预测 $\varepsilon$） |
+
 ---
 
-## 五、维度验证与测试
+## 六、维度验证与测试
 
 在扩散模型中，**去噪网络的输出形状必须与输入图像形状完全一致**（因为我们要对图像中的每一个像素预测其混入的噪声）。
 
@@ -266,4 +483,6 @@ DDPM U-Net 组件与架构测试
 
 ## 下一节预告
 
-**Section 05**：完整训练循环与采样 —— 结合前面所有章节的知识，在 MNIST 数据集上从零开始训练我们的去噪 U-Net，并实现反向去噪采样，亲眼见证模型从纯高斯噪声中“凭空”生成手写数字图片！
+**Section 05**：完整训练循环与采样 —— 结合前面所有章节的知识，在 MNIST 数据集上从零开始训练我们的去噪 U-Net，并实现反向去噪采样，亲眼见证模型从纯高斯噪声中「凭空」生成手写数字图片！
+
+详见 [`section05_train_sample/README.md`](../section05_train_sample/README.md)。

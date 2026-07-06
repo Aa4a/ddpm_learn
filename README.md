@@ -21,14 +21,15 @@ conda activate ddpm_learn
 | `section02_reverse_process/` | 反向过程后验推导（贝叶斯+配方法）、蒙特卡洛验证、反向采样 | ✅ 完成 |
 | `section03_loss/` | ELBO → 简化损失函数（预测噪声 ε） | ✅ 完成 |
 | `section04_unet/` | 时间嵌入 + U-Net 架构实现 | ✅ 完成 |
-| `section05_train_sample/` | 完整训练循环 + 采样（MNIST） | 🔜 |
+| `section05_train_sample/` | 完整训练循环 + 采样（MNIST） | ✅ 完成 |
 
 ## 快速入口
 
 - **Section 01 理论**：[`section01_intro/README.md`](section01_intro/README.md)
 - **HF 训练脚本数学对照**（无需 diffusers/GPU）：[`hf_diffusion/README.md`](hf_diffusion/README.md)
 - **训练脚本本体**（需 GPU + diffusers）：[`hf_diffusion_train.py`](hf_diffusion_train.py)
-- **Section 03 损失推导**：[`section03_loss/README.md`](section03_loss/README.md)
+- **Section 04 U-Net 与时间嵌入**：[`section04_unet/README.md`](section04_unet/README.md)
+- **Section 05 训练与采样**：[`section05_train_sample/README.md`](section05_train_sample/README.md)
 
 ## 核心公式速查
 

@@ -4,5 +4,7 @@ __pycache__/
 .DS_Store
 *.pth
 *.ckpt
+section05_train_sample/data/
+section05_train_sample/checkpoints/
 .venv/
 env/
