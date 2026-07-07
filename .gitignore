@@ -6,5 +6,7 @@ __pycache__/
 *.ckpt
 section05_train_sample/data/
 section05_train_sample/checkpoints/
+section05_train_sample/figures/
+logs/
 .venv/
 env/

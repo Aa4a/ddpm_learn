@@ -1,0 +1,25 @@
+# ddpm_learn 项目依赖
+# Python 3.10 推荐
+#
+# PyTorch 需单独安装（CUDA 12.4）：
+#   pip install torch==2.5.1+cu124 torchvision==0.20.1+cu124 \
+#       --index-url https://download.pytorch.org/whl/cu124
+#
+# 其余依赖：
+#   pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# --- 核心（Section 01~05 手写实现）---
+numpy>=1.23
+matplotlib>=3.8
+tqdm>=4.66
+
+# --- HuggingFace 路线（hf_diffusion_train.py）---
+torch>=2.5.0
+torchvision>=0.20.0
+diffusers>=0.39.0
+datasets>=5.0.0
+accelerate>=1.14.0
+huggingface_hub>=0.34.0
+
+# --- 可选：Jupyter 交互 ---
+jupyter>=1.1.0

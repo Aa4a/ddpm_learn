@@ -71,7 +71,7 @@ def save_sample_grid(model, schedule, device, epoch: int, n: int = 64):
         ax.imshow(samples[i, 0].cpu().numpy(), cmap="gray", vmin=0, vmax=1)
         ax.axis("off")
 
-    fig.suptitle(f"Epoch {epoch} 采样结果（{n} 张，从纯噪声生成）", fontsize=13)
+    fig.suptitle(f"Epoch {epoch} Samples ({n} images, generated from pure noise)", fontsize=13)
     fig.tight_layout()
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     path = FIG_DIR / f"samples_epoch_{epoch:03d}.png"
@@ -86,7 +86,7 @@ def plot_loss_curve(losses: list[float], path: Path):
     ax.plot(losses, color="steelblue", lw=1.5)
     ax.set_xlabel("Epoch")
     ax.set_ylabel(r"$L_{\rm simple}$ (MSE)")
-    ax.set_title("训练损失曲线")
+    ax.set_title("Training Loss Curve")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(path, dpi=120, bbox_inches="tight")

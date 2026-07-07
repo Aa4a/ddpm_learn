@@ -70,7 +70,7 @@ def main():
         ax.axis("off")
 
     epoch = ckpt.get("epoch", "?")
-    fig.suptitle(f"DDPM 采样结果（checkpoint epoch={epoch}）", fontsize=13)
+    fig.suptitle(f"DDPM Samples (checkpoint epoch={epoch})", fontsize=13)
     fig.tight_layout()
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
