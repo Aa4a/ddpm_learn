@@ -22,6 +22,7 @@ conda activate ddpm_learn
 | `section03_loss/` | ELBO → 简化损失函数（预测噪声 ε） | ✅ 完成 |
 | `section04_unet/` | 时间嵌入 + U-Net 架构实现 | ✅ 完成 |
 | `section05_train_sample/` | 完整训练循环 + 采样（MNIST） | ✅ 完成 |
+| `section06_transformer_mt/` | Transformer 机器翻译（8 个小节：Seq2Seq → 注意力 → 训练 → 推理） | ✅ 完成 |
 
 ## 快速入口
 
@@ -30,6 +31,7 @@ conda activate ddpm_learn
 - **训练脚本本体**（需 GPU + diffusers）：[`hf_diffusion_train.py`](hf_diffusion_train.py)
 - **Section 04 U-Net 与时间嵌入**：[`section04_unet/README.md`](section04_unet/README.md)
 - **Section 05 训练与采样**：[`section05_train_sample/README.md`](section05_train_sample/README.md)
+- **Section 06 Transformer 翻译**：[`section06_transformer_mt/README.md`](section06_transformer_mt/README.md)
 
 ## 核心公式速查
 

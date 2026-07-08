@@ -7,6 +7,9 @@ __pycache__/
 section05_train_sample/data/
 section05_train_sample/checkpoints/
 section05_train_sample/figures/
+section06_transformer_mt/data/
+section06_transformer_mt/checkpoints/
+section06_transformer_mt/figures/
 logs/
 .venv/
 env/
