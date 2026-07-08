@@ -60,7 +60,7 @@ def main():
         print("未找到 checkpoint")
         raise SystemExit(1)
 
-    model = load_simple_unet(in_channels=1, time_dim=128).to(device)
+    model = load_simple_unet(in_channels=1, time_dim=256, channel_1=128, channel_2=256).to(device)
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()

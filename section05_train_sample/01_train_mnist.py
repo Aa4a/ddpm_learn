@@ -31,7 +31,7 @@ FIG_DIR = HERE / "figures"
 def parse_args():
     p = argparse.ArgumentParser(description="MNIST DDPM 训练")
     p.add_argument("--epochs", type=int, default=20, help="训练轮数")
-    p.add_argument("--batch-size", type=int, default=128)
+    p.add_argument("--batch-size", type=int, default=896)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--num-samples", type=int, default=64, help="每次采样生成的图片数")
     p.add_argument("--sample-every", type=int, default=5, help="每 N 个 epoch 采样一次")
@@ -120,7 +120,7 @@ def train():
     print("=" * 60)
 
     dataloader = get_dataloader(args.batch_size, args.fast)
-    model = load_simple_unet(in_channels=1, time_dim=128).to(device)
+    model = load_simple_unet(in_channels=1, time_dim=256, channel_1=128, channel_2=256).to(device)
     schedule = DDPMSchedule(DDPMConfig(), device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 

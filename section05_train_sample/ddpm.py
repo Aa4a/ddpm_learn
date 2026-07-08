@@ -105,7 +105,8 @@ class DDPMSchedule:
         return x
 
 
-def load_simple_unet(in_channels: int = 1, time_dim: int = 128):
+def load_simple_unet(in_channels: int = 1, time_dim: int = 256,
+                     channel_1: int = 128, channel_2: int = 256):
     """从 section04 加载 SimpleUNet（避免模块名以数字开头无法直接 import）。"""
     import importlib.util
     from pathlib import Path
@@ -114,4 +115,7 @@ def load_simple_unet(in_channels: int = 1, time_dim: int = 128):
     spec = importlib.util.spec_from_file_location("unet_components", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.SimpleUNet(in_channels=in_channels, out_channels=in_channels, time_dim=time_dim)
+    return mod.SimpleUNet(
+        in_channels=in_channels, out_channels=in_channels,
+        time_dim=time_dim, channel_1=channel_1, channel_2=channel_2,
+    )

@@ -153,43 +153,45 @@ class SimpleUNet(nn.Module):
     - 解码器 (Upsampling Path)：两层上采样 + 跳跃连接 (Skip Connections)
     - 输出层：卷积映射回图像通道数
     """
-    def __init__(self, in_channels=3, out_channels=3, time_dim=128):
+    def __init__(self, in_channels=3, out_channels=3, time_dim=128,
+                 channel_1=16, channel_2=32):
         super().__init__()
         self.time_dim = time_dim
-        
+        c1, c2 = channel_1, channel_2
+
         # 1. 时间嵌入层
         self.time_embed = nn.Sequential(
             SinusoidalPositionEmbeddings(time_dim),
             nn.Linear(time_dim, time_dim),
             nn.SiLU()
         )
-        
+
         # 2. 编码器 (Downsampling)
-        self.init_conv = nn.Conv2d(in_channels, 16, kernel_size=3, padding=1)
-        
-        self.down1_res = ResidualBlock(16, 16, time_dim)
-        self.down1_pool = nn.Conv2d(16, 16, kernel_size=4, stride=2, padding=1) # 尺寸减半
-        
-        self.down2_res = ResidualBlock(16, 32, time_dim)
-        self.down2_pool = nn.Conv2d(32, 32, kernel_size=4, stride=2, padding=1) # 尺寸减半
-        
+        self.init_conv = nn.Conv2d(in_channels, c1, kernel_size=3, padding=1)
+
+        self.down1_res = ResidualBlock(c1, c1, time_dim)
+        self.down1_pool = nn.Conv2d(c1, c1, kernel_size=4, stride=2, padding=1) # 尺寸减半
+
+        self.down2_res = ResidualBlock(c1, c2, time_dim)
+        self.down2_pool = nn.Conv2d(c2, c2, kernel_size=4, stride=2, padding=1) # 尺寸减半
+
         # 3. 中间层 (Bottleneck)
-        self.mid_res1 = ResidualBlock(32, 32, time_dim)
-        self.mid_attn = AttentionBlock(32)
-        self.mid_res2 = ResidualBlock(32, 32, time_dim)
-        
+        self.mid_res1 = ResidualBlock(c2, c2, time_dim)
+        self.mid_attn = AttentionBlock(c2)
+        self.mid_res2 = ResidualBlock(c2, c2, time_dim)
+
         # 4. 解码器 (Upsampling)
         # 上采样使用转置卷积 (ConvTranspose2d)
-        self.up1_unpool = nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2, padding=1)
-        # 跳跃连接拼接后通道数：32 (来自上采样) + 32 (来自 down2_res) = 64
-        self.up1_res = ResidualBlock(64, 16, time_dim)
-        
-        self.up2_unpool = nn.ConvTranspose2d(16, 16, kernel_size=4, stride=2, padding=1)
-        # 跳跃连接拼接后通道数：16 (来自上采样) + 16 (来自 down1_res) = 32
-        self.up2_res = ResidualBlock(32, 16, time_dim)
-        
+        self.up1_unpool = nn.ConvTranspose2d(c2, c2, kernel_size=4, stride=2, padding=1)
+        # 跳跃连接拼接后通道数：c2 (来自上采样) + c2 (来自 down2_res) = 2*c2
+        self.up1_res = ResidualBlock(2 * c2, c1, time_dim)
+
+        self.up2_unpool = nn.ConvTranspose2d(c1, c1, kernel_size=4, stride=2, padding=1)
+        # 跳跃连接拼接后通道数：c1 (来自上采样) + c1 (来自 down1_res) = 2*c1
+        self.up2_res = ResidualBlock(2 * c1, c1, time_dim)
+
         # 5. 输出投影层
-        self.out_conv = nn.Conv2d(16, out_channels, kernel_size=1)
+        self.out_conv = nn.Conv2d(c1, out_channels, kernel_size=1)
 
     def forward(self, x, t):
         # x: [B, in_channels, H, W]
