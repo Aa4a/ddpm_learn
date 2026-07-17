@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Section 06.8 - Transformer 机器翻译推理
+Section 06.9 - Transformer 机器翻译推理
 
-前置：先运行 07_train.py --fast 得到 checkpoint。
+前置：先运行 08_train.py --fast 得到 checkpoint。
 从 checkpoint 加载模型，对单句或交互输入做英→中翻译。
 """
 
@@ -22,7 +22,7 @@ CKPT_DIR = HERE / "checkpoints"
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Section 06.8 - Transformer 英→中推理")
+    p = argparse.ArgumentParser(description="Section 06.9 - Transformer 英→中推理")
     p.add_argument(
         "--checkpoint",
         type=str,
@@ -31,6 +31,7 @@ def parse_args():
     )
     p.add_argument("--sentence", type=str, default=None, help="单句英文（不加则进入交互模式）")
     p.add_argument("--max-len", type=int, default=32)
+    p.add_argument("--viz", action="store_true", help="翻译后画出 Cross-Attention 热力图")
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
 
@@ -82,11 +83,11 @@ def main():
 
     if not ckpt_path.exists():
         print(f"找不到 checkpoint: {ckpt_path}")
-        print("请先运行: python 07_train.py --fast")
+        print("请先运行: python 08_train.py --fast")
         return
 
     print("=" * 60)
-    print("Section 06.8 - Transformer 推理")
+    print("Section 06.9 - Transformer 推理")
     print(f"加载模型: {ckpt_path}")
     model, src_vocab, tgt_vocab = load_model(ckpt_path, device)
     print(f"设备: {device} | 源词表 {len(src_vocab)} | 目标词表 {len(tgt_vocab)}")
@@ -104,6 +105,24 @@ def main():
         pred = translate(model, src_vocab, tgt_vocab, args.sentence, device, args.max_len)
         print(f"EN: {args.sentence}")
         print(f"ZH: {pred}")
+        if args.viz:
+            from importlib import import_module
+
+            viz = import_module("10_visualize_attention")
+            _, src_labels, tgt_labels, cross_layers = viz.collect_cross_attention(
+                model, src_vocab, tgt_vocab, args.sentence, device
+            )
+            mat = cross_layers[-1].mean(dim=0).numpy()
+            safe = args.sentence.replace(" ", "_")[:40]
+            path = HERE / "figures" / f"09_infer_attn_{safe}.png"
+            viz.plot_heatmap(
+                mat,
+                tgt_labels,
+                src_labels,
+                f'Infer Cross-Attn\n"{args.sentence}" -> "{pred}"',
+                path,
+            )
+            print(f"Attention 热力图: {path}")
         return
 
     print("演示翻译：")

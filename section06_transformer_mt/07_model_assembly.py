@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Section 06.6 - 组装完整 Transformer，检查维度
+Section 06.7 - 组装完整 Transformer，检查维度
 
 把前面学过的组件拼成 Encoder-Decoder，跑一次前向传播，确认 shape 正确。
 """
@@ -13,7 +13,7 @@ from transformer import TransformerConfig, TransformerMT, make_pad_mask, make_tg
 
 def main():
     print("=" * 60)
-    print("Section 06.6 - Transformer 组装与维度检查")
+    print("Section 06.7 - Transformer 组装与维度检查")
     print("=" * 60)
 
     pairs = load_builtin_pairs()[:20]
@@ -78,10 +78,10 @@ def main():
                                  cross-attn 读 memory
 
 【接下来】
-  07_train.py  用很多句子反复训练，让 logits 接近 tgt_out
-  08_infer.py  没有 tgt_out 了，用 greedy_decode 一个字一个字生成
+  08_train.py  用很多句子反复训练，让 logits 接近 tgt_out
+  09_infer.py  没有 tgt_out 了，用 greedy_decode 一个字一个字生成
 
-建议: python 07_train.py --fast
+建议: python 08_train.py --fast
 """)
     print("=" * 60)
 

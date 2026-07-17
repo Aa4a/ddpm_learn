@@ -52,9 +52,11 @@ def main():
   06.3  03_attention_intuition.py  注意力：翻译时「看哪里」
   06.4  04_positional_encoding.py  位置编码：词序信息
   06.5  05_multihead_and_mask.py   多头注意力 + Mask
-  06.6  06_model_assembly.py       拼成完整 Transformer
-  06.7  07_train.py                训练
-  06.8  08_infer.py                推理翻译
+  06.6  06_cross_attention.py      Cross-Attention：译时查原文
+  06.7  07_model_assembly.py       拼成完整 Transformer
+  06.8  08_train.py                训练
+  06.9  09_infer.py                推理翻译
+  06.10 10_visualize_attention.py  可视化 Attention（看对齐）
 """)
     print("=" * 60)
 

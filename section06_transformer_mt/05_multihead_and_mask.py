@@ -54,12 +54,12 @@ def main():
     print(f"\n【4】Decoder 实际用的是 Pad Mask AND Causal Mask 的交集")
 
     print("""
-【三种注意力在本项目中的分工】
+【三种注意力在本项目中的分工】（Cross-Attn 专节见 06_cross_attention.py）
   Encoder Self-Attn:  Q,K,V 都来自英文  →  理解原文
   Decoder Self-Attn:  Q,K,V 都来自已生成的中文 + Causal Mask
   Cross-Attn:        Q 来自中文，K,V 来自 Encoder 输出（memory）
 
-下一步: python 06_model_assembly.py
+下一步: python 06_cross_attention.py
 """)
     print("=" * 60)
 

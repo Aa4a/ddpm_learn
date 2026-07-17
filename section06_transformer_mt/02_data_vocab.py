@@ -75,7 +75,7 @@ def main():
 【小结】
   - 模型输入的不是字符串，而是整数矩阵 src / tgt
   - <bos> 表示「开始写」，<eos> 表示「写完了」，<pad> 只是对齐长度用
-  - 训练时 pad 位置的 loss 会被忽略（后面 07_train.py）
+  - 训练时 pad 位置的 loss 会被忽略（后面 08_train.py）
 
 下一步: python 03_attention_intuition.py
 """)

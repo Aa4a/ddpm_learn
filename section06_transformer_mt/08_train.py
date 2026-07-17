@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Section 06.7 - Transformer 机器翻译训练
+Section 06.8 - Transformer 机器翻译训练
 
-前置：建议先跑完 01~06 小节。
+前置：建议先跑完 01~07 小节。
 Teacher Forcing：输入 tgt[:, :-1]，预测 tgt[:, 1:]
 损失：CrossEntropy（ignore <pad>）
 """
@@ -31,7 +31,7 @@ FIG_DIR = HERE / "figures"
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Section 06.7 - Transformer 英→中翻译训练")
+    p = argparse.ArgumentParser(description="Section 06.8 - Transformer 英→中翻译训练")
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--lr", type=float, default=3e-4)
@@ -54,7 +54,7 @@ def plot_loss_curve(train_losses: list[float], val_losses: list[float], path: Pa
     ax.plot(val_losses, label="val", color="coral", lw=1.5)
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Cross-Entropy Loss")
-    ax.set_title("Section 06.7 - Transformer MT Training Loss")
+    ax.set_title("Section 06.8 - Transformer MT Training Loss")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -88,6 +88,8 @@ def show_translations(
     tgt_vocab: Vocab,
     sentences: list[str],
     device: torch.device,
+    epoch: int | None = None,
+    save_attn_sentence: str = "i love you",
 ):
     model.eval()
     print("  --- 翻译样例 ---")
@@ -107,6 +109,23 @@ def show_translations(
         print(f"  EN: {s}")
         print(f"  ZH: {pred}")
         print()
+
+    # 训练过程中也能「看见」Cross-Attn：存一张对齐热力图
+    try:
+        from importlib import import_module
+
+        viz = import_module("10_visualize_attention")
+        pred, src_labels, tgt_labels, cross_layers = viz.collect_cross_attention(
+            model, src_vocab, tgt_vocab, save_attn_sentence, device
+        )
+        mat = cross_layers[-1].mean(dim=0).numpy()
+        tag = f"epoch{epoch:03d}" if epoch is not None else "latest"
+        path = FIG_DIR / f"attn_train_{tag}_{save_attn_sentence.replace(' ', '_')}.png"
+        title = f'[train {tag}] Cross-Attn (last layer, avg heads)\n"{save_attn_sentence}" -> "{pred}"'
+        viz.plot_heatmap(mat, tgt_labels, src_labels, title, path)
+        print(f"  Cross-Attn 热力图已保存: {path}")
+    except Exception as e:
+        print(f"  (跳过 attention 可视化: {e})")
 
 
 def save_checkpoint(path: Path, model, optimizer, epoch, cfg_dict, src_vocab, tgt_vocab, loss):
@@ -137,7 +156,7 @@ def train():
 
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     print("=" * 60)
-    print("Section 06.7 - Transformer 英→中翻译训练")
+    print("Section 06.8 - Transformer 英→中翻译训练")
     print(f"设备: {device}")
     print(f"Epochs: {args.epochs}, Batch: {args.batch_size}, LR: {args.lr}")
     print(f"模型: d_model={args.d_model}, heads={args.n_heads}, layers={args.n_layers}")
@@ -231,7 +250,7 @@ def train():
         print(f"Epoch {epoch:3d} | train: {train_loss:.4f} | val: {val_loss:.4f}")
 
         if epoch % args.eval_every == 0 or epoch == args.epochs:
-            show_translations(model, src_vocab, tgt_vocab, demo_sentences, device)
+            show_translations(model, src_vocab, tgt_vocab, demo_sentences, device, epoch=epoch)
 
         if val_loss < best_val:
             best_val = val_loss
@@ -259,7 +278,8 @@ def train():
     print(f"损失曲线: {FIG_DIR / 'loss_curve.png'}")
     print(f"最佳(val) checkpoint: {CKPT_DIR / 'best.pth'}")
     print(f"最终 checkpoint: {CKPT_DIR / 'last.pth'}  <-- 小语料推理建议用这个")
-    print("下一步: python 08_infer.py")
+    print("下一步: python 09_infer.py")
+    print("       或看注意力: python 10_visualize_attention.py --sentence \"i love you\"")
     print("=" * 60)
 
 

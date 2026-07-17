@@ -69,7 +69,11 @@ class PositionalEncoding(nn.Module):
 # ---------------------------------------------------------------------------
 
 class MultiHeadAttention(nn.Module):
-    """缩放点积多头注意力。"""
+    """缩放点积多头注意力。
+
+    return_attn=True 时额外返回权重 (B, n_heads, L_q, L_k)，供可视化；
+    训练默认 False，行为与原来一致。
+    """
 
     def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1):
         super().__init__()
@@ -90,7 +94,8 @@ class MultiHeadAttention(nn.Module):
         key: torch.Tensor,
         value: torch.Tensor,
         mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        return_attn: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         B = query.size(0)
 
         # (B, L, d_model) -> (B, n_heads, L, d_k)
@@ -103,10 +108,15 @@ class MultiHeadAttention(nn.Module):
         if mask is not None:
             scores = scores.masked_fill(mask == 0, float("-inf"))
 
-        attn = self.dropout(F.softmax(scores, dim=-1))
+        # 可视化用未 dropout 的权重（概率意义更清晰）
+        attn_weights = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn_weights)
         out = torch.matmul(attn, V)  # (B, n_heads, L_q, d_k)
         out = out.transpose(1, 2).contiguous().view(B, -1, self.d_model)
-        return self.w_o(out)
+        out = self.w_o(out)
+        if return_attn:
+            return out, attn_weights
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +150,18 @@ class EncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, src_mask: torch.Tensor | None) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        src_mask: torch.Tensor | None,
+        return_attn: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         # Pre-LN 风格也可，这里用论文原始 Post-LN
+        if return_attn:
+            attn_out, self_attn = self.self_attn(x, x, x, src_mask, return_attn=True)
+            x = self.norm1(x + self.dropout(attn_out))
+            x = self.norm2(x + self.dropout(self.ff(x)))
+            return x, self_attn
         x = self.norm1(x + self.dropout(self.self_attn(x, x, x, src_mask)))
         x = self.norm2(x + self.dropout(self.ff(x)))
         return x
@@ -164,7 +184,15 @@ class DecoderLayer(nn.Module):
         memory: torch.Tensor,
         tgt_mask: torch.Tensor | None,
         memory_mask: torch.Tensor | None,
-    ) -> torch.Tensor:
+        return_attn: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if return_attn:
+            self_out, self_w = self.self_attn(x, x, x, tgt_mask, return_attn=True)
+            x = self.norm1(x + self.dropout(self_out))
+            cross_out, cross_w = self.cross_attn(x, memory, memory, memory_mask, return_attn=True)
+            x = self.norm2(x + self.dropout(cross_out))
+            x = self.norm3(x + self.dropout(self.ff(x)))
+            return x, self_w, cross_w
         x = self.norm1(x + self.dropout(self.self_attn(x, x, x, tgt_mask)))
         x = self.norm2(x + self.dropout(self.cross_attn(x, memory, memory, memory_mask)))
         x = self.norm3(x + self.dropout(self.ff(x)))
@@ -224,6 +252,43 @@ class TransformerMT(nn.Module):
         for layer in self.decoder_layers:
             x = layer(x, memory, tgt_mask, memory_mask)
         return x
+
+    def forward_with_attention(
+        self,
+        src: torch.Tensor,
+        tgt: torch.Tensor,
+        src_mask: torch.Tensor | None,
+        tgt_mask: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, dict[str, list[torch.Tensor]]]:
+        """
+        与 forward 相同，但返回各层注意力权重，便于画热力图。
+
+        返回:
+          logits: (B, L_tgt, V)
+          attns:
+            enc_self:  list[n_layers] of (B, H, L_src, L_src)
+            dec_self:  list[n_layers] of (B, H, L_tgt, L_tgt)
+            cross:     list[n_layers] of (B, H, L_tgt, L_src)  ← 翻译对齐，最重要
+        """
+        # Encoder
+        x = self.pos_enc(self.src_embed(src) * math.sqrt(self.cfg.d_model))
+        enc_self: list[torch.Tensor] = []
+        for layer in self.encoder_layers:
+            x, sa = layer(x, src_mask, return_attn=True)
+            enc_self.append(sa)
+        memory = x
+
+        # Decoder
+        x = self.pos_enc(self.tgt_embed(tgt) * math.sqrt(self.cfg.d_model))
+        dec_self: list[torch.Tensor] = []
+        cross: list[torch.Tensor] = []
+        for layer in self.decoder_layers:
+            x, sa, ca = layer(x, memory, tgt_mask, src_mask, return_attn=True)
+            dec_self.append(sa)
+            cross.append(ca)
+
+        logits = self.generator(x)
+        return logits, {"enc_self": enc_self, "dec_self": dec_self, "cross": cross}
 
     def forward(
         self,
