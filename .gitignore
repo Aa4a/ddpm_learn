@@ -13,6 +13,9 @@ section06_transformer_mt/figures/
 section07_stable_diffusion/data/
 section07_stable_diffusion/checkpoints/
 section07_stable_diffusion/figures/
+
+section08_masked_diffusion/checkpoints/
+section08_masked_diffusion/figures/
 logs/
 .venv/
 env/

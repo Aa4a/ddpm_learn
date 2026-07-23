@@ -24,6 +24,8 @@ conda activate ddpm_learn
 | `section05_train_sample/` | 完整训练循环 + 采样（MNIST） | ✅ 完成 |
 | `section06_transformer_mt/` | Transformer 机器翻译（10 个小节：Seq2Seq → 注意力 → 训练 → 推理） | ✅ 完成 |
 | `section07_stable_diffusion/` | 迷你 Stable Diffusion（VAE + 文本 Cross-Attn + CFG，MNIST 文生图） | ✅ 完成 |
+| `section08_masked_diffusion/` | 离散 Mask 扩散（通往 LLaDA：双向填空 + 迭代 Unmask） | ✅ 完成 |
+| `section09_torcheeg_diffusion/` | TorchEEG 扩散（BUNet/BCUNet + DDPMTrainer，架构与原理） | ✅ 完成 |
 
 ## 快速入口
 
@@ -34,6 +36,8 @@ conda activate ddpm_learn
 - **Section 05 训练与采样**：[`section05_train_sample/README.md`](section05_train_sample/README.md)
 - **Section 06 Transformer 翻译**：[`section06_transformer_mt/README.md`](section06_transformer_mt/README.md)
 - **Section 07 迷你 Stable Diffusion**：[`section07_stable_diffusion/README.md`](section07_stable_diffusion/README.md)
+- **Section 08 Mask 扩散 → LLaDA**：[`section08_masked_diffusion/README.md`](section08_masked_diffusion/README.md)
+- **Section 09 TorchEEG 扩散**：[`section09_torcheeg_diffusion/README.md`](section09_torcheeg_diffusion/README.md)
 
 ## 核心公式速查
 
